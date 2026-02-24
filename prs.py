@@ -169,7 +169,8 @@
 import pandas as pd
 from sklearn import preprocessing, model_selection
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, confusion_matrix, roc_curve
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -184,9 +185,11 @@ categorical_cols = X.select_dtypes(include='object').columns
 enc = preprocessing.OneHotEncoder(sparse_output=False, drop='first')
 X_encoded = enc.fit_transform(X[categorical_cols])
 
-X_encoded_df = pd.DataFrame(X_encoded,
-                            columns=enc.get_feature_names_out(categorical_cols),
-                            index=X.index)
+X_encoded_df = pd.DataFrame(
+    X_encoded,
+    columns=enc.get_feature_names_out(categorical_cols),
+    index=X.index
+)
 
 X = X.drop(categorical_cols, axis=1)
 X = pd.concat([X, X_encoded_df], axis=1)
@@ -197,25 +200,47 @@ y_array = y.to_numpy()
 random_state = 13
 test_size = 0.2
 X_train, X_test, y_train, y_test = model_selection.train_test_split(
-    X_array, y_array, test_size=test_size, random_state=random_state)
+    X_array, y_array, test_size=test_size, random_state=random_state
+)
 
 param_range = [100, 10, 1, 0.1, 0.01, 0.001]
-best_accuracy = 0
-best_C = None
+param_grid = {'C': param_range}
 
-for C in param_range:
-    model = LogisticRegression(random_state=16, max_iter=1000, C=C)
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
-    y_pred_prob = model.predict_proba(X_test)[:, 1]
-    roc_auc = roc_auc_score(y_test, y_pred_prob)
-    
-    print(f"C = {C}")
-    print(f"Точность: {accuracy:.3f}, F1: {f1:.3f}, ROC AUC: {roc_auc:.3f}")
-    print("-------------------------------")
-    
-    if accuracy > best_accuracy:
-        best_accuracy = accuracy
-        best_C = C
+grid = GridSearchCV(LogisticRegression(max_iter=1000, random_state=16),
+                    param_grid, cv=5, scoring='accuracy')
+grid.fit(X_train, y_train)
+
+best_model = grid.best_estimator_
+best_C = grid.best_params_['C']
+best_score = grid.best_score_
+
+print("Лучший C:", best_C)
+print("Лучшая точность (по кросс-валидации):", best_score)
+
+y_pred = best_model.predict(X_test)
+y_pred_prob = best_model.predict_proba(X_test)[:, 1]
+
+accuracy = accuracy_score(y_test, y_pred)
+f1 = f1_score(y_test, y_pred)
+roc_auc = roc_auc_score(y_test, y_pred_prob)
+
+print("Точность ", accuracy)
+print("F1 ", f1)
+print("ROC AUC ", roc_auc)
+
+conf_matrix = confusion_matrix(y_test, y_pred)
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', 
+            xticklabels=[0, 1], yticklabels=[0, 1])
+plt.xlabel('Предсказанные значения')
+plt.ylabel('Истинные значения')
+plt.title('Матрица ошибок')
+plt.show()
+
+fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob)
+plt.plot(fpr, tpr, label=f'ROC-кривая (AUC = {roc_auc})')
+plt.plot([0, 1], [0, 1])
+plt.xlabel('Доля ложноположительных')
+plt.ylabel('Доля истинноположительных')
+plt.title('ROC-кривая')
+plt.legend()
+plt.show()
